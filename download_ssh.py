@@ -8,8 +8,8 @@
     不加该选项      本地已存在则改名为 原名.copy；若 .copy 也存在则继续追加 .copy
 
 用法:
-    python scripts/download_ssh.py --host 1.2.3.4 --user root --password secret --remote /root/upload --local C:\\data\\weights
-    python scripts/download_ssh.py --host 1.2.3.4 --port 46060 --user root --password secret --remote /root/upload/best.pt --local C:\\data --overwrite
+    python download_ssh.py --host 1.2.3.4 --user root --password secret --remote /root/upload --local C:\\data\\weights
+    python download_ssh.py --host 1.2.3.4 --port 46060 --user root --password secret --remote /root/upload/best.pt --local C:\\data --overwrite
 """
 from __future__ import annotations
 
