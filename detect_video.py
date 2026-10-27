@@ -4,17 +4,50 @@
     python detect_video.py --weights best.pt --video-dir video --out-dir output
     python detect_video.py --weights best.pt --videos rod1.mp4 rod2.mp4 --out-dir output
     python detect_video.py --weights best.pt --videos a.mp4 --conf 0.5 --labels person car
+    python detect_video.py --weights best.pt --videos a.mp4 --labels person,car
 """
 
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 from pathlib import Path
 
 import cv2
 from ultralytics import YOLO
 
 VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", ".webm"}
+
+
+def parse_labels(raw: list[str] | None) -> list[str] | None:
+    """解析 --labels：支持空格与逗号分隔，如 person car / person,car / person, car。"""
+    if not raw:
+        return None
+    labels: list[str] = []
+    for item in raw:
+        for part in item.split(","):
+            name = part.strip()
+            if name:
+                labels.append(name)
+    return labels or None
+
+
+def unique_out_path(out_dir: Path, stem: str) -> Path:
+    """生成带可读时间的输出路径；已存在则追加序号。
+
+    例: rod1_annotated_2026-10-27_15-57-00.mp4
+         rod1_annotated_2026-10-27_15-57-00_1.mp4
+    """
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    base = out_dir / f"{stem}_annotated_{stamp}.mp4"
+    if not base.exists():
+        return base
+    n = 1
+    while True:
+        candidate = out_dir / f"{stem}_annotated_{stamp}_{n}.mp4"
+        if not candidate.exists():
+            return candidate
+        n += 1
 
 
 def resolve_class_ids(model: YOLO, labels: list[str] | None) -> list[int] | None:
@@ -55,12 +88,16 @@ def process(
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    out_path = out_dir / f"{video_path.stem}_annotated.mp4"
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+    out_path = unique_out_path(out_dir, video_path.stem)
     writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
     predict_kw: dict = {"conf": conf, "verbose": False}
     if class_ids is not None:
         predict_kw["classes"] = class_ids
+
+    total_desc = str(total) if total > 0 else "未知"
+    print(f"开始: {video_path.name}（总帧数 {total_desc}）-> {out_path.name}")
 
     n = 0
     while True:
@@ -71,11 +108,11 @@ def process(
         writer.write(results[0].plot())
         n += 1
         if n % 100 == 0:
-            print(f"  {video_path.name}: 已处理 {n} 帧")
+            print(f"  {video_path.name}: 已处理 {n}/{total_desc} 帧")
 
     cap.release()
     writer.release()
-    print(f"完成: {out_path}（共 {n} 帧）")
+    print(f"完成: {out_path}（已处理 {n}/{total_desc} 帧）")
 
 
 def resolve_videos(video_dir: Path | None, videos: list[Path] | None) -> list[Path]:
@@ -136,9 +173,10 @@ def main() -> None:
         "--labels",
         nargs="+",
         default=None,
-        help="只标注这些类别名；不指定则标注全部",
+        help="只标注这些类别名，可用空格或逗号分隔；不指定则标注全部",
     )
     args = parser.parse_args()
+    labels = parse_labels(args.labels)
 
     if not args.weights.exists():
         print(f"[错误] 权重不存在: {args.weights}")
@@ -159,7 +197,7 @@ def main() -> None:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     model = YOLO(str(args.weights))
-    class_ids = resolve_class_ids(model, args.labels)
+    class_ids = resolve_class_ids(model, labels)
 
     print(f"权重: {args.weights}")
     print(f"输出: {args.out_dir}")
@@ -167,7 +205,7 @@ def main() -> None:
     if class_ids is None:
         print(f"标签: 全部 ({', '.join(model.names.values())})")
     else:
-        print(f"标签: {', '.join(args.labels)} -> ids {class_ids}")
+        print(f"标签: {', '.join(labels)} -> ids {class_ids}")
     print(f"视频数: {len(video_paths)}")
 
     for path in video_paths:
