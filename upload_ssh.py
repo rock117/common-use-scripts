@@ -10,6 +10,8 @@
 用法:
     python upload_ssh.py --host 1.2.3.4 --user root --password secret --local C:\\data\\weights --remote /root/upload
     python upload_ssh.py --host 1.2.3.4 --port 46060 --user root --password secret --local C:\\data\\best.pt --remote /root/upload --overwrite
+    # host/port/user/password 可省略，缺省读同目录 .env（SSH_HOST / SSH_PORT / SSH_USER / SSH_PASSWORD）
+    python upload_ssh.py --local C:\\data\\weights --remote /root/upload
 """
 from __future__ import annotations
 
@@ -18,6 +20,25 @@ import time
 from pathlib import Path
 
 import paramiko
+
+ENV_PATH = Path(__file__).resolve().parent / ".env"
+
+
+def load_env(path: Path = ENV_PATH) -> dict[str, str]:
+    """读取 KEY=VALUE 格式的 .env（忽略空行与 # 注释）。"""
+    env: dict[str, str] = {}
+    if not path.is_file():
+        return env
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("'").strip('"')
+        if key:
+            env[key] = value
+    return env
 
 
 def connect(host: str, port: int, user: str, password: str) -> paramiko.SSHClient:
@@ -126,10 +147,10 @@ def upload_one(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="上传本地文件/目录到 SSH 服务器（不递归）")
-    parser.add_argument("--host", required=True, help="服务器 IP 或域名")
-    parser.add_argument("--port", type=int, default=22, help="SSH 端口，默认 22")
-    parser.add_argument("--user", required=True, help="用户名")
-    parser.add_argument("--password", required=True, help="密码")
+    parser.add_argument("--host", default=None, help="服务器 IP 或域名；缺省读 .env 的 SSH_HOST")
+    parser.add_argument("--port", type=int, default=None, help="SSH 端口；缺省读 .env 的 SSH_PORT，再默认 22")
+    parser.add_argument("--user", default=None, help="用户名；缺省读 .env 的 SSH_USER")
+    parser.add_argument("--password", default=None, help="密码；缺省读 .env 的 SSH_PASSWORD")
     parser.add_argument("--local", required=True, help="本地文件或目录")
     parser.add_argument("--remote", required=True, help="远端目录")
     parser.add_argument(
@@ -138,6 +159,30 @@ def main() -> int:
         help="远端同名文件则覆盖；不加则改名为 原名.copy",
     )
     args = parser.parse_args()
+
+    env = load_env()
+    host = args.host or env.get("SSH_HOST") or ""
+    user = args.user or env.get("SSH_USER") or ""
+    password = args.password or env.get("SSH_PASSWORD") or ""
+    port_raw = args.port if args.port is not None else (env.get("SSH_PORT") or "22")
+    try:
+        port = int(port_raw)
+    except ValueError:
+        print(f"[错误] 无效端口: {port_raw}")
+        return 1
+
+    missing = [
+        name
+        for name, value in (
+            ("--host / SSH_HOST", host),
+            ("--user / SSH_USER", user),
+            ("--password / SSH_PASSWORD", password),
+        )
+        if not value
+    ]
+    if missing:
+        print(f"[错误] 缺少连接参数: {', '.join(missing)}（可写在命令行或 {ENV_PATH}）")
+        return 1
 
     local = Path(args.local)
     if not local.exists():
@@ -160,10 +205,10 @@ def main() -> int:
         return 1
 
     print(f"本地: {local}  ({'文件' if local.is_file() else '目录'}，{len(files)} 个文件)")
-    print(f"远端: {args.user}@{args.host}:{args.port}{remote_dir}")
+    print(f"远端: {user}@{host}:{port}{remote_dir}")
     print(f"同名: {'覆盖' if args.overwrite else '不覆盖，加 .copy 后缀'}")
 
-    client = connect(args.host, args.port, args.user, args.password)
+    client = connect(host, port, user, password)
     try:
         sftp = client.open_sftp()
         try:
