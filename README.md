@@ -181,11 +181,15 @@ python dir_stats.py
 python dir_stats.py ./storage
 python dir_stats.py ./storage --depth 1
 python dir_stats.py ./storage --depth 2 --ext .jpg,.png
+python dir_stats.py ./storage --by-dir
 ```
+
+加 `--by-dir` 时，会额外按**一级子目录**分组，列出各自的文件数与大小（递归汇总，按大小降序）；根目录下的直接文件显示为 `(根目录)`。
 
 | 参数 | 说明 |
 |------|------|
 | `directory` | 要统计的根目录，默认当前目录 |
 | `-d` / `--depth N` | 扫描深度：`1`=仅当前目录，`2`=含一层子目录；默认不限 |
 | `-e` / `--ext EXTS` | 只统计指定扩展名，逗号或空格分隔，如 `.jpg,.png` |
+| `-b` / `--by-dir` | 额外按一级子目录分组统计文件数与大小 |
 | `-v` / `--verbose` | 打印因权限或读取错误而跳过的路径 |

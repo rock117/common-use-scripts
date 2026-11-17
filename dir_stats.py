@@ -7,6 +7,7 @@
   python dir_stats.py ./storage
   python dir_stats.py ./storage --depth 1
   python dir_stats.py ./storage --depth 2 --ext .jpg,.png
+  python dir_stats.py ./storage --by-dir
 """
 
 from __future__ import annotations
@@ -14,8 +15,16 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+
+@dataclass
+class Bucket:
+    """某个一级子目录（或根目录直接文件）的汇总。"""
+
+    files: int = 0
+    size: int = 0
 
 
 @dataclass
@@ -24,6 +33,8 @@ class Stats:
     size: int = 0
     dirs_scanned: int = 0
     skipped: int = 0
+    # 键为一级子目录名；"" 表示根目录下的直接文件
+    by_dir: dict[str, Bucket] = field(default_factory=dict)
 
 
 def human_size(num: int) -> str:
@@ -71,11 +82,13 @@ def scan(
       2 = 再包含一层子目录
       None = 不限深度，统计所有子孙目录
     """
-    # (目录, 当前层级)，root 自身为第 1 层
-    stack: list[tuple[Path, int]] = [(root, 1)]
+    # (目录, 当前层级, 所属一级子目录)；root 自身为第 1 层，顶层为 None
+    stack: list[tuple[Path, int, str | None]] = [(root, 1, None)]
+    # 根目录直接文件单独一行，即使数量为 0
+    stats.by_dir.setdefault("", Bucket())
 
     while stack:
-        current, level = stack.pop()
+        current, level, top = stack.pop()
         stats.dirs_scanned += 1
         try:
             with os.scandir(current) as it:
@@ -89,9 +102,12 @@ def scan(
         for entry in entries:
             try:
                 if entry.is_dir(follow_symlinks=False):
+                    # 一级子目录名即分组名
+                    child_top = top if top is not None else entry.name
+                    stats.by_dir.setdefault(child_top, Bucket())
                     # 超出深度限制的子目录不再进入
                     if depth is None or level < depth:
-                        stack.append((Path(entry.path), level + 1))
+                        stack.append((Path(entry.path), level + 1, child_top))
                     continue
 
                 # 只统计普通文件；符号链接、设备文件等跳过
@@ -101,8 +117,12 @@ def scan(
                 if exts is not None and Path(entry.name).suffix.lower() not in exts:
                     continue
 
+                size = entry.stat(follow_symlinks=False).st_size
                 stats.files += 1
-                stats.size += entry.stat(follow_symlinks=False).st_size
+                stats.size += size
+                bucket = stats.by_dir.setdefault(top or "", Bucket())
+                bucket.files += 1
+                bucket.size += size
             except OSError as exc:
                 stats.skipped += 1
                 if verbose:
@@ -118,12 +138,36 @@ def configure_stdio() -> None:
             pass
 
 
+def shorten(name: str, width: int) -> str:
+    """过长目录名截断，避免表格错位。"""
+    return name if len(name) <= width else name[: width - 1] + "…"
+
+
+def print_by_dir(stats: Stats) -> None:
+    """按一级子目录输出文件数与大小，按大小降序。"""
+    rows = sorted(
+        stats.by_dir.items(),
+        key=lambda item: (-item[1].size, -item[1].files, item[0]),
+    )
+    print()
+    print("  子目录（按大小降序）:")
+    print(f"    {'目录':<36}  {'文件数':>8}  {'大小':>12}")
+    print("    " + "─" * 62)
+    for name, bucket in rows:
+        label = "(根目录)" if name == "" else name
+        print(
+            f"    {shorten(label, 36):<36}  {bucket.files:>8,}"
+            f"  {human_size(bucket.size):>12}"
+        )
+
+
 def print_report(
     *,
     root: Path,
     depth: int | None,
     exts: set[str] | None,
     stats: Stats,
+    by_dir: bool,
 ) -> None:
     line = "─" * 64
     print(line)
@@ -139,6 +183,8 @@ def print_report(
     print(f"  大小 : {human_size(stats.size)}（{stats.size:,} 字节）")
     if stats.skipped:
         print(f"  跳过 : {stats.skipped} 项（无权限或读取失败）")
+    if by_dir:
+        print_by_dir(stats)
     print(line)
 
 
@@ -168,6 +214,12 @@ def main() -> int:
         "--ext",
         metavar="EXTS",
         help="只统计指定扩展名，逗号或空格分隔，如 .jpg,.png",
+    )
+    parser.add_argument(
+        "-b",
+        "--by-dir",
+        action="store_true",
+        help="按一级子目录分组统计文件数与大小",
     )
     parser.add_argument(
         "-v",
@@ -203,6 +255,7 @@ def main() -> int:
         depth=args.depth,
         exts=parse_exts(args.ext),
         stats=stats,
+        by_dir=args.by_dir,
     )
     return 0
 
