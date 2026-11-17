@@ -12,6 +12,7 @@
 - [search_docx.py](#search_docxpy) — Word 全文搜索
 - [decode_unicode.py](#decode_unicodepy) — Unicode 转义解码
 - [detect-yolo-class.py](#detect-yolo-classpy) — 查看 YOLO 类别
+- [dir_stats.py](#dir_statspy) — 目录文件数量与大小统计
 
 ---
 
@@ -41,6 +42,7 @@ pip install paramiko opencv-python torch
 | [`search_docx.py`](#search_docxpy) | 在目录下递归搜索 `.docx` 中的关键字 |
 | [`decode_unicode.py`](#decode_unicodepy) | 把 `\uXXXX` 等 Unicode 转义解码为可读文本 |
 | [`detect-yolo-class.py`](#detect-yolo-classpy) | 打印 YOLO 权重文件中的类别 id 与名称 |
+| [`dir_stats.py`](#dir_statspy) | 统计目录内的文件数量与总大小，可限制深度 |
 
 ---
 
@@ -165,3 +167,25 @@ type log.txt | python decode_unicode.py -
 ```bash
 python detect-yolo-class.py
 ```
+
+---
+
+## dir_stats.py
+
+统计指定目录内的文件数量与总大小，默认递归统计所有子孙目录；不传目录时统计当前目录。
+
+深度语义与 `find -maxdepth` 一致：`1` 只统计当前目录下的直接文件，`2` 再包含一层子目录；不写则不限深度。
+
+```bash
+python dir_stats.py
+python dir_stats.py ./storage
+python dir_stats.py ./storage --depth 1
+python dir_stats.py ./storage --depth 2 --ext .jpg,.png
+```
+
+| 参数 | 说明 |
+|------|------|
+| `directory` | 要统计的根目录，默认当前目录 |
+| `-d` / `--depth N` | 扫描深度：`1`=仅当前目录，`2`=含一层子目录；默认不限 |
+| `-e` / `--ext EXTS` | 只统计指定扩展名，逗号或空格分隔，如 `.jpg,.png` |
+| `-v` / `--verbose` | 打印因权限或读取错误而跳过的路径 |
